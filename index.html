@@ -135,7 +135,7 @@
   .task-text { font-size: 0.95rem; line-height: 1.5; margin-bottom: 10px; }
   .task-context { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4; }
 
-  .task-check { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; padding: 6px 0; }
+  .task-check { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; padding: 10px 0; -webkit-tap-highlight-color: rgba(59,130,246,0.1); }
   .checkbox {
     width: 28px; height: 28px; border-radius: 8px; border: 2px solid var(--border);
     display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0;
@@ -226,6 +226,18 @@
   .note-btn.uncomplete {
     background: transparent; color: var(--text-muted); border: 1px solid var(--border);
     font-size: 0.75rem; padding: 6px 12px; min-height: 36px;
+  }
+  .note-btn.mic {
+    background: var(--card); color: var(--accent-1); border: 1px solid rgba(59,130,246,0.3);
+    margin-right: auto;
+  }
+  .note-btn.mic.recording {
+    background: rgba(239,68,68,0.15); color: #ef4444; border-color: rgba(239,68,68,0.4);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
   }
   .note-display {
     margin-top: 10px; padding: 10px 12px; background: rgba(16,185,129,0.06);

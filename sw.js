@@ -1,4 +1,4 @@
-const CACHE_NAME = 'goal-os-v1';
+const CACHE_NAME = 'goal-os-v3';
 const ASSETS = [
   './',
   './index.html',

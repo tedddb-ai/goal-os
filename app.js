@@ -100,7 +100,6 @@ function initToday() {
     }
   }
 
-  // Default to first week/day
   var firstWeek = Object.keys(WEEKS)[0];
   state.currentWeek = firstWeek;
   state.currentDay = Object.keys(WEEKS[firstWeek].days)[0];
@@ -113,62 +112,6 @@ function getWeekKeys() { return Object.keys(WEEKS); }
 function getDayKeys(weekKey) { return Object.keys(WEEKS[weekKey].days); }
 function taskKey(week, day, pillar) { return week + ':' + day + ':' + pillar; }
 function isComplete(week, day, pillar) { return !!state.completions[taskKey(week, day, pillar)]; }
-
-// Track which card has the note input open
-var activeNoteCard = null;
-
-function openNoteInput(week, day, pillar) {
-  activeNoteCard = taskKey(week, day, pillar);
-  render();
-  // Focus the textarea after render
-  var ta = document.getElementById('note-input-' + pillar);
-  if (ta) ta.focus();
-}
-
-function cancelNote() {
-  activeNoteCard = null;
-  render();
-}
-
-function submitNote(week, day, pillar) {
-  var key = taskKey(week, day, pillar);
-  var ta = document.getElementById('note-input-' + pillar);
-  var note = ta ? ta.value.trim() : '';
-  state.completions[key] = {
-    done: true,
-    timestamp: new Date().toISOString(),
-    note: note
-  };
-  activeNoteCard = null;
-  saveCompletions();
-  render();
-}
-
-function editNote(week, day, pillar) {
-  activeNoteCard = taskKey(week, day, pillar);
-  render();
-  var ta = document.getElementById('note-input-' + pillar);
-  if (ta) ta.focus();
-}
-
-function uncompleteTask(week, day, pillar) {
-  var key = taskKey(week, day, pillar);
-  delete state.completions[key];
-  activeNoteCard = null;
-  saveCompletions();
-  render();
-}
-
-function toggleTask(week, day, pillar) {
-  var key = taskKey(week, day, pillar);
-  if (state.completions[key]) {
-    // Already done — open edit mode
-    editNote(week, day, pillar);
-  } else {
-    // Not done — open note input
-    openNoteInput(week, day, pillar);
-  }
-}
 
 function dayCompletionCount(week, day) {
   var count = 0;
@@ -237,6 +180,119 @@ function getWeedFreeDays() {
 }
 
 // ============================================================
+// NOTE INPUT STATE
+// ============================================================
+var activeNoteCard = null;
+
+function openNoteInput(week, day, pillar) {
+  activeNoteCard = taskKey(week, day, pillar);
+  render();
+  setTimeout(function() {
+    var ta = document.getElementById('note-input-' + pillar);
+    if (ta) ta.focus();
+  }, 50);
+}
+
+function cancelNote() {
+  activeNoteCard = null;
+  render();
+}
+
+function submitNote(week, day, pillar) {
+  var key = taskKey(week, day, pillar);
+  var ta = document.getElementById('note-input-' + pillar);
+  var note = ta ? ta.value.trim() : '';
+  state.completions[key] = {
+    done: true,
+    timestamp: new Date().toISOString(),
+    note: note
+  };
+  activeNoteCard = null;
+  saveCompletions();
+  render();
+}
+
+function uncompleteTask(week, day, pillar) {
+  var key = taskKey(week, day, pillar);
+  delete state.completions[key];
+  activeNoteCard = null;
+  saveCompletions();
+  render();
+}
+
+// ============================================================
+// VOICE INPUT (Web Speech API)
+// ============================================================
+var speechSupported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+var activeRecognition = null;
+
+function startVoiceInput(pillar) {
+  if (!speechSupported) return;
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  var ta = document.getElementById('note-input-' + pillar);
+  var micBtn = document.getElementById('mic-btn-' + pillar);
+  if (!ta || !micBtn) return;
+
+  micBtn.classList.add('recording');
+  micBtn.textContent = '...';
+  activeRecognition = recognition;
+
+  recognition.onresult = function(event) {
+    var transcript = '';
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      transcript += event.results[i][0].transcript;
+    }
+    // Append to existing text
+    var existing = ta.value.trim();
+    if (existing && !event.results[event.resultIndex].isFinal) {
+      // Interim: show preview
+      ta.value = existing + ' ' + transcript;
+    } else if (event.results[event.resultIndex].isFinal) {
+      ta.value = (existing ? existing + ' ' : '') + transcript;
+    }
+  };
+
+  recognition.onend = function() {
+    micBtn.classList.remove('recording');
+    micBtn.textContent = 'Mic';
+    activeRecognition = null;
+  };
+
+  recognition.onerror = function() {
+    micBtn.classList.remove('recording');
+    micBtn.textContent = 'Mic';
+    activeRecognition = null;
+  };
+
+  recognition.start();
+}
+
+function stopVoiceInput(pillar) {
+  if (activeRecognition) {
+    activeRecognition.stop();
+    activeRecognition = null;
+  }
+  var micBtn = document.getElementById('mic-btn-' + pillar);
+  if (micBtn) {
+    micBtn.classList.remove('recording');
+    micBtn.textContent = 'Mic';
+  }
+}
+
+function toggleVoice(pillar) {
+  if (activeRecognition) {
+    stopVoiceInput(pillar);
+  } else {
+    startVoiceInput(pillar);
+  }
+}
+
+// ============================================================
 // PORTFOLIO
 // ============================================================
 var PORTFOLIO_CYCLE = ['not-started', 'in-progress', 'done'];
@@ -255,6 +311,39 @@ function cyclePortfolio(id) {
   state.portfolioStatus[id] = next;
   savePortfolio();
   render();
+}
+
+// ============================================================
+// DOM HELPERS — proper event binding for iOS Safari
+// ============================================================
+function el(tag, attrs, children) {
+  var node = document.createElement(tag);
+  if (attrs) {
+    Object.keys(attrs).forEach(function(k) {
+      if (k === 'className') node.className = attrs[k];
+      else if (k === 'textContent') node.textContent = attrs[k];
+      else if (k === 'onclick') node.addEventListener('click', attrs[k]);
+      else if (k === 'ontouchend') node.addEventListener('touchend', attrs[k]);
+      else if (k === 'innerHTML') node.innerHTML = attrs[k];
+      else node.setAttribute(k, attrs[k]);
+    });
+  }
+  if (children) {
+    children.forEach(function(c) {
+      if (typeof c === 'string') node.appendChild(document.createTextNode(c));
+      else if (c) node.appendChild(c);
+    });
+  }
+  return node;
+}
+
+function tap(handler) {
+  // Returns onclick that works on both mobile and desktop
+  return function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    handler();
+  };
 }
 
 // ============================================================
@@ -290,15 +379,12 @@ function render() {
   var tabsEl = document.getElementById('dayTabs');
   tabsEl.innerHTML = '';
   getDayKeys(state.currentWeek).forEach(function(d) {
-    var tab = document.createElement('div');
     var dc = dayCompletionCount(state.currentWeek, d);
     var cls = 'day-tab';
     if (d === state.currentDay) cls += ' active';
     if (dc === PILLAR_COUNT) cls += ' perfect';
     else if (dc > 0) cls += ' has-completions';
-    tab.className = cls;
-    tab.textContent = d;
-    tab.onclick = function() { state.currentDay = d; render(); };
+    var tab = el('div', { className: cls, textContent: d, onclick: tap(function() { state.currentDay = d; render(); }) });
     tabsEl.appendChild(tab);
   });
 
@@ -332,13 +418,17 @@ function render() {
     document.getElementById('milestoneDate').textContent = dateStr + ' (' + daysUntil + ' days)';
   }
 
-  // Pillar cards
+  // ---- Pillar cards (proper DOM, no innerHTML onclick) ----
   var cardsEl = document.getElementById('pillarCards');
   cardsEl.innerHTML = '';
 
   PILLARS.forEach(function(p) {
     var task = dayData.tasks[p];
     var done = isComplete(state.currentWeek, state.currentDay, p);
+    var key = taskKey(state.currentWeek, state.currentDay, p);
+    var completion = state.completions[key];
+    var existingNote = completion ? (completion.note || '') : '';
+    var isNoteOpen = activeNoteCard === key;
 
     // Pillar streak
     var pillarStreak = 0;
@@ -350,59 +440,134 @@ function render() {
       return x.week === state.currentWeek && x.day === state.currentDay;
     });
     for (var i = todayIdx; i >= 0; i--) {
-      if (isComplete(allDays[i].week, allDays[i].day, p)) {
-        pillarStreak++;
-      } else {
-        break;
-      }
+      if (isComplete(allDays[i].week, allDays[i].day, p)) pillarStreak++;
+      else break;
     }
 
-    var card = document.createElement('div');
-    card.className = 'pillar-card ' + p;
-    var key = taskKey(state.currentWeek, state.currentDay, p);
-    var completion = state.completions[key];
-    var existingNote = completion ? (completion.note || '') : '';
-    var isNoteOpen = activeNoteCard === key;
+    var card = el('div', { className: 'pillar-card ' + p });
 
-    var noteHtml = '';
+    // Header
+    var header = el('div', { className: 'pillar-header' }, [
+      el('div', { className: 'pillar-name', textContent: PILLAR_NAMES[p] }),
+      pillarStreak > 0 ? el('div', { className: 'pillar-streak', textContent: pillarStreak + 'd streak' }) : null
+    ]);
+    card.appendChild(header);
+
+    // Task text + context
+    card.appendChild(el('div', { className: 'task-text', textContent: task.text }));
+    card.appendChild(el('div', { className: 'task-context', textContent: task.context }));
+
+    // Checkbox row — use closure for correct pillar binding
+    (function(pp, wk, dy) {
+      var checkDiv = el('div', {
+        className: 'task-check' + (done ? ' checked' : ''),
+        onclick: tap(function() {
+          if (isComplete(wk, dy, pp)) {
+            // Already done — open edit
+            activeNoteCard = taskKey(wk, dy, pp);
+            render();
+            setTimeout(function() {
+              var ta = document.getElementById('note-input-' + pp);
+              if (ta) ta.focus();
+            }, 50);
+          } else {
+            // Not done — open note input
+            openNoteInput(wk, dy, pp);
+          }
+        })
+      });
+
+      var checkbox = el('div', { className: 'checkbox' });
+      checkbox.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 7L5.5 10L11.5 4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      checkDiv.appendChild(checkbox);
+      checkDiv.appendChild(el('span', { className: 'check-label', textContent: done ? 'Done' : 'Mark complete' }));
+      card.appendChild(checkDiv);
+    })(p, state.currentWeek, state.currentDay);
+
+    // Note area
     if (isNoteOpen) {
-      // Note input mode
-      var escapedNote = existingNote.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      noteHtml =
-        '<div class="note-area">' +
-          '<textarea class="note-input" id="note-input-' + p + '" placeholder="What did you do? Be specific...">' + escapedNote + '</textarea>' +
-          '<div class="note-actions">' +
-            (done ? '<button class="note-btn uncomplete" onclick="event.stopPropagation(); uncompleteTask(\'' + state.currentWeek + '\', \'' + state.currentDay + '\', \'' + p + '\')">Undo</button>' : '') +
-            '<button class="note-btn cancel" onclick="event.stopPropagation(); cancelNote()">Cancel</button>' +
-            '<button class="note-btn submit" onclick="event.stopPropagation(); submitNote(\'' + state.currentWeek + '\', \'' + state.currentDay + '\', \'' + p + '\')">' + (done ? 'Update' : 'Done') + '</button>' +
-          '</div>' +
-        '</div>';
+      (function(pp, wk, dy) {
+        var noteArea = el('div', { className: 'note-area' });
+
+        var textarea = document.createElement('textarea');
+        textarea.className = 'note-input';
+        textarea.id = 'note-input-' + pp;
+        textarea.placeholder = 'What did you do? Be specific...';
+        textarea.value = existingNote;
+        noteArea.appendChild(textarea);
+
+        var actions = el('div', { className: 'note-actions' });
+
+        // Voice input button (if supported)
+        if (speechSupported) {
+          var micBtn = el('button', {
+            className: 'note-btn mic',
+            id: 'mic-btn-' + pp,
+            textContent: 'Mic',
+            onclick: tap(function() { toggleVoice(pp); })
+          });
+          actions.appendChild(micBtn);
+        }
+
+        if (done) {
+          actions.appendChild(el('button', {
+            className: 'note-btn uncomplete',
+            textContent: 'Undo',
+            onclick: tap(function() { uncompleteTask(wk, dy, pp); })
+          }));
+        }
+
+        actions.appendChild(el('button', {
+          className: 'note-btn cancel',
+          textContent: 'Cancel',
+          onclick: tap(function() { cancelNote(); })
+        }));
+
+        actions.appendChild(el('button', {
+          className: 'note-btn submit',
+          textContent: done ? 'Update' : 'Done',
+          onclick: tap(function() { submitNote(wk, dy, pp); })
+        }));
+
+        noteArea.appendChild(actions);
+        card.appendChild(noteArea);
+      })(p, state.currentWeek, state.currentDay);
     } else if (done && existingNote) {
-      // Show saved note
-      var displayNote = existingNote.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      noteHtml =
-        '<div class="note-display" onclick="editNote(\'' + state.currentWeek + '\', \'' + state.currentDay + '\', \'' + p + '\')">' +
-          '<div class="note-label">What I did</div>' +
-          displayNote +
-        '</div>';
+      (function(pp, wk, dy) {
+        var noteDisplay = el('div', {
+          className: 'note-display',
+          onclick: tap(function() {
+            activeNoteCard = taskKey(wk, dy, pp);
+            render();
+            setTimeout(function() {
+              var ta = document.getElementById('note-input-' + pp);
+              if (ta) ta.focus();
+            }, 50);
+          })
+        });
+        noteDisplay.appendChild(el('div', { className: 'note-label', textContent: 'What I did' }));
+        noteDisplay.appendChild(document.createTextNode(existingNote));
+        card.appendChild(noteDisplay);
+      })(p, state.currentWeek, state.currentDay);
+    } else if (done && !existingNote) {
+      // Completed without a note — show hint to add one
+      (function(pp, wk, dy) {
+        var addNote = el('div', {
+          className: 'note-display',
+          onclick: tap(function() {
+            activeNoteCard = taskKey(wk, dy, pp);
+            render();
+            setTimeout(function() {
+              var ta = document.getElementById('note-input-' + pp);
+              if (ta) ta.focus();
+            }, 50);
+          })
+        });
+        addNote.appendChild(el('div', { className: 'note-label', textContent: 'Tap to add notes' }));
+        card.appendChild(addNote);
+      })(p, state.currentWeek, state.currentDay);
     }
 
-    card.innerHTML =
-      '<div class="pillar-header">' +
-        '<div class="pillar-name">' + PILLAR_NAMES[p] + '</div>' +
-        (pillarStreak > 0 ? '<div class="pillar-streak">' + pillarStreak + 'd streak</div>' : '') +
-      '</div>' +
-      '<div class="task-text">' + task.text + '</div>' +
-      '<div class="task-context">' + task.context + '</div>' +
-      '<div class="task-check ' + (done ? 'checked' : '') + '" onclick="toggleTask(\'' + state.currentWeek + '\', \'' + state.currentDay + '\', \'' + p + '\')">' +
-        '<div class="checkbox">' +
-          '<svg width="14" height="14" viewBox="0 0 14 14" fill="none">' +
-            '<path d="M2.5 7L5.5 10L11.5 4" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>' +
-          '</svg>' +
-        '</div>' +
-        '<span class="check-label">' + (done ? 'Done' : 'Mark complete') + '</span>' +
-      '</div>' +
-      noteHtml;
     cardsEl.appendChild(card);
   });
 
@@ -410,19 +575,18 @@ function render() {
   var gridEl = document.getElementById('weeklyGrid');
   gridEl.innerHTML = '';
   getDayKeys(state.currentWeek).forEach(function(d) {
-    var dayEl = document.createElement('div');
-    dayEl.className = 'week-day' + (d === state.currentDay ? ' today' : '');
-
-    var dotsHtml = '';
-    PILLARS.forEach(function(p, idx) {
-      var doneD = isComplete(state.currentWeek, d, p);
-      dotsHtml += '<div class="dot ' + (doneD ? 'done-' + (idx + 1) : '') + '"></div>';
+    var dayEl = el('div', {
+      className: 'week-day' + (d === state.currentDay ? ' today' : ''),
+      onclick: tap(function() { state.currentDay = d; render(); })
     });
 
-    dayEl.innerHTML =
-      '<div class="day-label">' + d + '</div>' +
-      '<div class="dots">' + dotsHtml + '</div>';
-    dayEl.onclick = function() { state.currentDay = d; render(); };
+    dayEl.appendChild(el('div', { className: 'day-label', textContent: d }));
+    var dots = el('div', { className: 'dots' });
+    PILLARS.forEach(function(p, idx) {
+      var doneD = isComplete(state.currentWeek, d, p);
+      dots.appendChild(el('div', { className: 'dot' + (doneD ? ' done-' + (idx + 1) : '') }));
+    });
+    dayEl.appendChild(dots);
     gridEl.appendChild(dayEl);
   });
 
@@ -431,12 +595,13 @@ function render() {
   portfolioEl.innerHTML = '';
   PORTFOLIO_ITEMS.forEach(function(item) {
     var status = getPortfolioStatus(item.id);
-    var div = document.createElement('div');
-    div.className = 'portfolio-item';
-    div.onclick = function() { cyclePortfolio(item.id); };
-    div.innerHTML =
-      '<span class="pi-name">' + item.name + '</span>' +
-      '<span class="pi-status ' + status + '">' + PORTFOLIO_LABELS[status] + '</span>';
+    var div = el('div', {
+      className: 'portfolio-item',
+      onclick: tap(function() { cyclePortfolio(item.id); })
+    }, [
+      el('span', { className: 'pi-name', textContent: item.name }),
+      el('span', { className: 'pi-status ' + status, textContent: PORTFOLIO_LABELS[status] })
+    ]);
     portfolioEl.appendChild(div);
   });
 }
@@ -444,7 +609,7 @@ function render() {
 // ============================================================
 // SYNC LOG — generates execution-log.md for Cowork pipeline
 // ============================================================
-function syncLog() {
+function generateLogContent() {
   var lines = [];
   lines.push('# Execution Log');
   lines.push('');
@@ -498,7 +663,6 @@ function syncLog() {
       lines.push('## ' + week.label);
       lines.push('');
       lines = lines.concat(weekLines);
-      // Week stats
       var wc = weekCompletionCount(wk);
       var wt = dayKeys.length * PILLAR_COUNT;
       lines.push('**Week score: ' + wc + '/' + wt + '**');
@@ -512,23 +676,20 @@ function syncLog() {
     lines.push('_No completions recorded yet._');
   }
 
-  // Summary stats
+  // Summary
   lines.push('## Summary');
   lines.push('');
   var totalDone = 0;
-  var totalPossible = 0;
   var streaks = calculateStreak();
-  weekKeys.forEach(function(wk) {
-    totalDone += weekCompletionCount(wk);
-    totalPossible += getDayKeys(wk).length * PILLAR_COUNT;
-  });
+  weekKeys.forEach(function(wk) { totalDone += weekCompletionCount(wk); });
+  var totalPossible = 91 * PILLAR_COUNT;
   lines.push('- Total completed: ' + totalDone + '/' + totalPossible);
   lines.push('- Current streak: ' + streaks.current + ' days');
   lines.push('- Best streak: ' + streaks.best + ' days');
   lines.push('- Weed-free: ' + getWeedFreeDays() + ' days');
   lines.push('');
 
-  // Portfolio status
+  // Portfolio
   lines.push('## Portfolio Status');
   lines.push('');
   PORTFOLIO_ITEMS.forEach(function(item) {
@@ -539,16 +700,19 @@ function syncLog() {
 
   // Next milestone
   var milestone = getNextMilestone();
-  var mDate = new Date(milestone.date + 'T00:00:00');
-  var today = new Date();
-  today.setHours(0,0,0,0);
-  var daysUntil = Math.ceil((mDate - today) / (1000 * 60 * 60 * 24));
+  var md = new Date(milestone.date + 'T00:00:00');
+  var td = new Date(); td.setHours(0,0,0,0);
+  var du = Math.ceil((md - td) / (1000*60*60*24));
   lines.push('## Next Milestone');
   lines.push('');
-  lines.push('**' + milestone.text + '** — ' + milestone.date + ' (' + daysUntil + ' days)');
+  lines.push('**' + milestone.text + '** — ' + milestone.date + ' (' + du + ' days)');
   lines.push('');
 
-  var content = lines.join('\n');
+  return lines.join('\n');
+}
+
+function syncLog() {
+  var content = generateLogContent();
   var blob = new Blob([content], { type: 'text/markdown' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
@@ -557,6 +721,26 @@ function syncLog() {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// ============================================================
+// AUTO-SYNC — save log to localStorage for Cowork to pick up
+// ============================================================
+function autoSyncLog() {
+  try {
+    var content = generateLogContent();
+    localStorage.setItem('goalos-execution-log', content);
+    localStorage.setItem('goalos-last-sync', new Date().toISOString());
+  } catch (e) {
+    // Silent fail
+  }
+}
+
+// Auto-sync on every completion
+var _origSaveCompletions = saveCompletions;
+saveCompletions = function() {
+  _origSaveCompletions();
+  autoSyncLog();
+};
 
 // ============================================================
 // SERVICE WORKER
@@ -571,3 +755,4 @@ if ('serviceWorker' in navigator) {
 loadState();
 initToday();
 render();
+autoSyncLog();
