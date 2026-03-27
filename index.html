@@ -196,8 +196,51 @@
   .pi-status.in-progress { background: rgba(59,130,246,0.15); color: var(--accent-1); }
   .pi-status.done { background: rgba(16,185,129,0.15); color: var(--success); }
 
+  /* Note input */
+  .note-area {
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+  }
+  .note-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-family: inherit;
+    font-size: 0.85rem; padding: 10px 12px; resize: vertical;
+    min-height: 60px; line-height: 1.4;
+  }
+  .note-input:focus { outline: none; border-color: var(--accent-1); }
+  .note-input::placeholder { color: var(--text-muted); }
+  .note-actions {
+    display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end;
+  }
+  .note-btn {
+    padding: 8px 16px; border-radius: 6px; font-size: 0.8rem;
+    font-weight: 500; cursor: pointer; border: none; min-width: 44px; min-height: 44px;
+  }
+  .note-btn.submit {
+    background: var(--success); color: white;
+  }
+  .note-btn.submit:hover { opacity: 0.9; }
+  .note-btn.cancel {
+    background: var(--card-hover); color: var(--text-muted); border: 1px solid var(--border);
+  }
+  .note-btn.cancel:hover { color: var(--text); }
+  .note-btn.uncomplete {
+    background: transparent; color: var(--text-muted); border: 1px solid var(--border);
+    font-size: 0.75rem; padding: 6px 12px; min-height: 36px;
+  }
+  .note-display {
+    margin-top: 10px; padding: 10px 12px; background: rgba(16,185,129,0.06);
+    border: 1px solid rgba(16,185,129,0.15); border-radius: 8px;
+    font-size: 0.82rem; color: var(--text-muted); line-height: 1.5;
+    white-space: pre-wrap; cursor: pointer;
+  }
+  .note-display:hover { background: rgba(16,185,129,0.1); }
+  .note-display .note-label {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--success); margin-bottom: 4px; font-weight: 600;
+  }
+
   .backup-section {
-    display: flex; gap: 8px; justify-content: center; margin-bottom: 20px;
+    display: flex; gap: 8px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap;
   }
   .backup-btn {
     background: var(--card); border: 1px solid var(--border); color: var(--text-muted);
@@ -205,6 +248,8 @@
     transition: all 0.15s;
   }
   .backup-btn:hover { background: var(--card-hover); color: var(--text); }
+  .backup-btn.sync { border-color: rgba(59,130,246,0.3); color: var(--accent-1); }
+  .backup-btn.sync:hover { background: rgba(59,130,246,0.1); }
 
   .footer { text-align: center; padding: 16px; color: var(--text-muted); font-size: 0.75rem; }
 
@@ -311,6 +356,7 @@
   </div>
 
   <div class="backup-section">
+    <button class="backup-btn sync" onclick="syncLog()">Sync Log</button>
     <button class="backup-btn" onclick="exportData()">Export Backup</button>
     <button class="backup-btn" onclick="document.getElementById('importFile').click()">Import Backup</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">

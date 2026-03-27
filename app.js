@@ -114,15 +114,60 @@ function getDayKeys(weekKey) { return Object.keys(WEEKS[weekKey].days); }
 function taskKey(week, day, pillar) { return week + ':' + day + ':' + pillar; }
 function isComplete(week, day, pillar) { return !!state.completions[taskKey(week, day, pillar)]; }
 
+// Track which card has the note input open
+var activeNoteCard = null;
+
+function openNoteInput(week, day, pillar) {
+  activeNoteCard = taskKey(week, day, pillar);
+  render();
+  // Focus the textarea after render
+  var ta = document.getElementById('note-input-' + pillar);
+  if (ta) ta.focus();
+}
+
+function cancelNote() {
+  activeNoteCard = null;
+  render();
+}
+
+function submitNote(week, day, pillar) {
+  var key = taskKey(week, day, pillar);
+  var ta = document.getElementById('note-input-' + pillar);
+  var note = ta ? ta.value.trim() : '';
+  state.completions[key] = {
+    done: true,
+    timestamp: new Date().toISOString(),
+    note: note
+  };
+  activeNoteCard = null;
+  saveCompletions();
+  render();
+}
+
+function editNote(week, day, pillar) {
+  activeNoteCard = taskKey(week, day, pillar);
+  render();
+  var ta = document.getElementById('note-input-' + pillar);
+  if (ta) ta.focus();
+}
+
+function uncompleteTask(week, day, pillar) {
+  var key = taskKey(week, day, pillar);
+  delete state.completions[key];
+  activeNoteCard = null;
+  saveCompletions();
+  render();
+}
+
 function toggleTask(week, day, pillar) {
   var key = taskKey(week, day, pillar);
   if (state.completions[key]) {
-    delete state.completions[key];
+    // Already done — open edit mode
+    editNote(week, day, pillar);
   } else {
-    state.completions[key] = { done: true, timestamp: new Date().toISOString() };
+    // Not done — open note input
+    openNoteInput(week, day, pillar);
   }
-  saveCompletions();
-  render();
 }
 
 function dayCompletionCount(week, day) {
@@ -314,6 +359,34 @@ function render() {
 
     var card = document.createElement('div');
     card.className = 'pillar-card ' + p;
+    var key = taskKey(state.currentWeek, state.currentDay, p);
+    var completion = state.completions[key];
+    var existingNote = completion ? (completion.note || '') : '';
+    var isNoteOpen = activeNoteCard === key;
+
+    var noteHtml = '';
+    if (isNoteOpen) {
+      // Note input mode
+      var escapedNote = existingNote.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      noteHtml =
+        '<div class="note-area">' +
+          '<textarea class="note-input" id="note-input-' + p + '" placeholder="What did you do? Be specific...">' + escapedNote + '</textarea>' +
+          '<div class="note-actions">' +
+            (done ? '<button class="note-btn uncomplete" onclick="event.stopPropagation(); uncompleteTask(\'' + state.currentWeek + '\', \'' + state.currentDay + '\', \'' + p + '\')">Undo</button>' : '') +
+            '<button class="note-btn cancel" onclick="event.stopPropagation(); cancelNote()">Cancel</button>' +
+            '<button class="note-btn submit" onclick="event.stopPropagation(); submitNote(\'' + state.currentWeek + '\', \'' + state.currentDay + '\', \'' + p + '\')">' + (done ? 'Update' : 'Done') + '</button>' +
+          '</div>' +
+        '</div>';
+    } else if (done && existingNote) {
+      // Show saved note
+      var displayNote = existingNote.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      noteHtml =
+        '<div class="note-display" onclick="editNote(\'' + state.currentWeek + '\', \'' + state.currentDay + '\', \'' + p + '\')">' +
+          '<div class="note-label">What I did</div>' +
+          displayNote +
+        '</div>';
+    }
+
     card.innerHTML =
       '<div class="pillar-header">' +
         '<div class="pillar-name">' + PILLAR_NAMES[p] + '</div>' +
@@ -328,7 +401,8 @@ function render() {
           '</svg>' +
         '</div>' +
         '<span class="check-label">' + (done ? 'Done' : 'Mark complete') + '</span>' +
-      '</div>';
+      '</div>' +
+      noteHtml;
     cardsEl.appendChild(card);
   });
 
@@ -365,6 +439,123 @@ function render() {
       '<span class="pi-status ' + status + '">' + PORTFOLIO_LABELS[status] + '</span>';
     portfolioEl.appendChild(div);
   });
+}
+
+// ============================================================
+// SYNC LOG — generates execution-log.md for Cowork pipeline
+// ============================================================
+function syncLog() {
+  var lines = [];
+  lines.push('# Execution Log');
+  lines.push('');
+  lines.push('Generated: ' + new Date().toISOString());
+  lines.push('');
+
+  var weekKeys = getWeekKeys();
+  var hasAnyCompletions = false;
+
+  weekKeys.forEach(function(wk) {
+    var week = WEEKS[wk];
+    var dayKeys = getDayKeys(wk);
+    var weekHasCompletions = false;
+    var weekLines = [];
+
+    dayKeys.forEach(function(d) {
+      var dayData = week.days[d];
+      var dayHasCompletions = false;
+      var dayLines = [];
+
+      PILLARS.forEach(function(p) {
+        var key = taskKey(wk, d, p);
+        var completion = state.completions[key];
+        if (completion && completion.done) {
+          if (!dayHasCompletions) {
+            dayLines.push('### ' + d + ', ' + dayData.date + ' (' + dayData.isoDate + ')');
+            dayLines.push('');
+            dayHasCompletions = true;
+          }
+          var task = dayData.tasks[p];
+          dayLines.push('**' + PILLAR_NAMES[p] + '** — ' + task.text);
+          if (completion.note) {
+            dayLines.push('> ' + completion.note.split('\n').join('\n> '));
+          } else {
+            dayLines.push('> _(completed, no notes)_');
+          }
+          dayLines.push('');
+          dayLines.push('_Completed: ' + new Date(completion.timestamp).toLocaleString() + '_');
+          dayLines.push('');
+        }
+      });
+
+      if (dayHasCompletions) {
+        weekHasCompletions = true;
+        weekLines = weekLines.concat(dayLines);
+      }
+    });
+
+    if (weekHasCompletions) {
+      hasAnyCompletions = true;
+      lines.push('## ' + week.label);
+      lines.push('');
+      lines = lines.concat(weekLines);
+      // Week stats
+      var wc = weekCompletionCount(wk);
+      var wt = dayKeys.length * PILLAR_COUNT;
+      lines.push('**Week score: ' + wc + '/' + wt + '**');
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+    }
+  });
+
+  if (!hasAnyCompletions) {
+    lines.push('_No completions recorded yet._');
+  }
+
+  // Summary stats
+  lines.push('## Summary');
+  lines.push('');
+  var totalDone = 0;
+  var totalPossible = 0;
+  var streaks = calculateStreak();
+  weekKeys.forEach(function(wk) {
+    totalDone += weekCompletionCount(wk);
+    totalPossible += getDayKeys(wk).length * PILLAR_COUNT;
+  });
+  lines.push('- Total completed: ' + totalDone + '/' + totalPossible);
+  lines.push('- Current streak: ' + streaks.current + ' days');
+  lines.push('- Best streak: ' + streaks.best + ' days');
+  lines.push('- Weed-free: ' + getWeedFreeDays() + ' days');
+  lines.push('');
+
+  // Portfolio status
+  lines.push('## Portfolio Status');
+  lines.push('');
+  PORTFOLIO_ITEMS.forEach(function(item) {
+    var status = getPortfolioStatus(item.id);
+    lines.push('- ' + item.name + ': **' + PORTFOLIO_LABELS[status] + '**');
+  });
+  lines.push('');
+
+  // Next milestone
+  var milestone = getNextMilestone();
+  var mDate = new Date(milestone.date + 'T00:00:00');
+  var today = new Date();
+  today.setHours(0,0,0,0);
+  var daysUntil = Math.ceil((mDate - today) / (1000 * 60 * 60 * 24));
+  lines.push('## Next Milestone');
+  lines.push('');
+  lines.push('**' + milestone.text + '** — ' + milestone.date + ' (' + daysUntil + ' days)');
+  lines.push('');
+
+  var content = lines.join('\n');
+  var blob = new Blob([content], { type: 'text/markdown' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'execution-log.md';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ============================================================
