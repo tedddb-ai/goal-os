@@ -251,6 +251,37 @@
     color: var(--success); margin-bottom: 4px; font-weight: 600;
   }
 
+  /* Sync indicator */
+  .sync-status {
+    text-align: center; font-size: 0.72rem; padding: 6px; margin-bottom: 12px;
+    cursor: pointer; border-radius: 6px;
+  }
+  .sync-status.synced { color: var(--success); }
+  .sync-status.syncing { color: var(--accent-1); }
+  .sync-status.error { color: #ef4444; background: rgba(239,68,68,0.08); }
+  .sync-status.setup { color: var(--accent-1); background: rgba(59,130,246,0.08); }
+
+  /* Settings overlay */
+  .settings-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7); display: flex; align-items: center;
+    justify-content: center; z-index: 100; padding: 20px;
+  }
+  .settings-panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 24px; width: 100%; max-width: 400px;
+  }
+  .settings-title { font-size: 1rem; margin-bottom: 16px; }
+  .settings-label { font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px; }
+  .settings-hint { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4; opacity: 0.7; }
+  .settings-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-family: inherit;
+    font-size: 0.85rem; padding: 10px 12px; margin-bottom: 16px;
+  }
+  .settings-input:focus { outline: none; border-color: var(--accent-1); }
+  .settings-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
   .backup-section {
     display: flex; gap: 8px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap;
   }
@@ -367,10 +398,12 @@
     </div>
   </div>
 
+  <div id="syncStatus" class="sync-status"></div>
+
   <div class="backup-section">
-    <button class="backup-btn sync" onclick="syncLog()">Sync Log</button>
-    <button class="backup-btn" onclick="exportData()">Export Backup</button>
-    <button class="backup-btn" onclick="document.getElementById('importFile').click()">Import Backup</button>
+    <button class="backup-btn sync" id="settingsBtn">Settings</button>
+    <button class="backup-btn" id="exportBtn">Export</button>
+    <button class="backup-btn" id="importBtn">Import</button>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
   </div>
 

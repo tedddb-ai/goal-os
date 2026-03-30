@@ -750,16 +750,119 @@ function syncLog() {
 }
 
 // ============================================================
-// AUTO-SYNC — save log to localStorage for Cowork to pick up
+// GITHUB AUTO-SYNC — pushes execution-log.md to repo on completion
 // ============================================================
+var GITHUB_REPO = 'tedddb-ai/goal-os';
+var GITHUB_FILE = 'execution-log.md';
+var syncDebounceTimer = null;
+
+function getGitHubToken() {
+  return localStorage.getItem('goalos-github-token') || '';
+}
+
+function setGitHubToken(token) {
+  localStorage.setItem('goalos-github-token', token.trim());
+}
+
+function getSyncStatus() {
+  return localStorage.getItem('goalos-sync-status') || 'never';
+}
+
+function setSyncStatus(status) {
+  localStorage.setItem('goalos-sync-status', status);
+  localStorage.setItem('goalos-last-sync', new Date().toISOString());
+  updateSyncIndicator();
+}
+
+function updateSyncIndicator() {
+  var el = document.getElementById('syncStatus');
+  if (!el) return;
+  var status = getSyncStatus();
+  var lastSync = localStorage.getItem('goalos-last-sync');
+  if (status === 'synced' && lastSync) {
+    var ago = Math.round((Date.now() - new Date(lastSync).getTime()) / 60000);
+    el.textContent = ago < 1 ? 'Synced just now' : 'Synced ' + ago + 'm ago';
+    el.className = 'sync-status synced';
+  } else if (status === 'syncing') {
+    el.textContent = 'Syncing...';
+    el.className = 'sync-status syncing';
+  } else if (status === 'error') {
+    el.textContent = 'Sync failed — tap to retry';
+    el.className = 'sync-status error';
+  } else if (status === 'no-token') {
+    el.textContent = 'Tap to set up auto-sync';
+    el.className = 'sync-status setup';
+  } else {
+    el.textContent = '';
+    el.className = 'sync-status';
+  }
+}
+
+function pushToGitHub() {
+  var token = getGitHubToken();
+  if (!token) {
+    setSyncStatus('no-token');
+    return;
+  }
+
+  var content = generateLogContent();
+  var encoded = btoa(unescape(encodeURIComponent(content)));
+
+  setSyncStatus('syncing');
+
+  // First get the current file SHA (needed for updates)
+  fetch('https://api.github.com/repos/' + GITHUB_REPO + '/contents/' + GITHUB_FILE, {
+    headers: { 'Authorization': 'Bearer ' + token }
+  })
+  .then(function(res) {
+    if (res.status === 404) return { sha: null };
+    if (!res.ok) throw new Error('GitHub API error: ' + res.status);
+    return res.json();
+  })
+  .then(function(data) {
+    var body = {
+      message: 'Update execution log — ' + new Date().toLocaleDateString(),
+      content: encoded
+    };
+    if (data.sha) body.sha = data.sha;
+
+    return fetch('https://api.github.com/repos/' + GITHUB_REPO + '/contents/' + GITHUB_FILE, {
+      method: 'PUT',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+  })
+  .then(function(res) {
+    if (!res.ok) throw new Error('Push failed: ' + res.status);
+    setSyncStatus('synced');
+  })
+  .catch(function(err) {
+    console.warn('GitHub sync failed:', err);
+    setSyncStatus('error');
+  });
+}
+
+// Debounced sync — waits 5 seconds after last completion before pushing
+function debouncedSync() {
+  if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+  syncDebounceTimer = setTimeout(function() {
+    pushToGitHub();
+  }, 5000);
+}
+
 function autoSyncLog() {
   try {
     var content = generateLogContent();
     localStorage.setItem('goalos-execution-log', content);
     localStorage.setItem('goalos-last-sync', new Date().toISOString());
   } catch (e) {
-    // Silent fail
+    // Silent fail on localStorage
   }
+  // Push to GitHub (debounced)
+  debouncedSync();
 }
 
 // Auto-sync on every completion
@@ -768,6 +871,60 @@ saveCompletions = function() {
   _origSaveCompletions();
   autoSyncLog();
 };
+
+// ============================================================
+// SETTINGS PANEL — GitHub token setup
+// ============================================================
+function showSettings() {
+  var overlay = document.getElementById('settingsOverlay');
+  if (overlay) { overlay.style.display = 'flex'; return; }
+
+  overlay = el('div', { className: 'settings-overlay', id: 'settingsOverlay' });
+  var panel = el('div', { className: 'settings-panel' });
+
+  panel.appendChild(el('h3', { textContent: 'Settings', className: 'settings-title' }));
+
+  // GitHub token
+  panel.appendChild(el('label', { className: 'settings-label', textContent: 'GitHub Token (for auto-sync)' }));
+  panel.appendChild(el('p', { className: 'settings-hint', textContent: 'Create at github.com/settings/tokens → Fine-grained → Scope to goal-os repo → Contents: Read and write' }));
+
+  var tokenInput = document.createElement('input');
+  tokenInput.type = 'password';
+  tokenInput.className = 'settings-input';
+  tokenInput.id = 'settings-token';
+  tokenInput.placeholder = 'github_pat_...';
+  tokenInput.value = getGitHubToken();
+  panel.appendChild(tokenInput);
+
+  var actions = el('div', { className: 'settings-actions' });
+
+  actions.appendChild(el('button', {
+    className: 'note-btn cancel',
+    textContent: 'Cancel',
+    onclick: tap(function() { overlay.style.display = 'none'; })
+  }));
+
+  actions.appendChild(el('button', {
+    className: 'note-btn submit',
+    textContent: 'Save & Sync',
+    onclick: tap(function() {
+      var token = document.getElementById('settings-token').value;
+      setGitHubToken(token);
+      overlay.style.display = 'none';
+      if (token) pushToGitHub();
+      else setSyncStatus('no-token');
+    })
+  }));
+
+  panel.appendChild(actions);
+  overlay.appendChild(panel);
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.style.display = 'none';
+  });
+
+  document.body.appendChild(overlay);
+}
 
 // ============================================================
 // SERVICE WORKER
@@ -782,4 +939,24 @@ if ('serviceWorker' in navigator) {
 loadState();
 initToday();
 render();
-autoSyncLog();
+
+// Wire up footer buttons (proper event listeners for iOS)
+document.getElementById('settingsBtn').addEventListener('click', function(e) { e.preventDefault(); showSettings(); });
+document.getElementById('exportBtn').addEventListener('click', function(e) { e.preventDefault(); exportData(); });
+document.getElementById('importBtn').addEventListener('click', function(e) { e.preventDefault(); document.getElementById('importFile').click(); });
+
+// Sync status tap — open settings if no token, retry if error
+document.getElementById('syncStatus').addEventListener('click', function(e) {
+  e.preventDefault();
+  var status = getSyncStatus();
+  if (status === 'no-token' || status === 'never') showSettings();
+  else if (status === 'error') pushToGitHub();
+});
+
+// Initial sync status
+if (!getGitHubToken()) {
+  setSyncStatus('no-token');
+} else {
+  updateSyncIndicator();
+  autoSyncLog();
+}
