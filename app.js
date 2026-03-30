@@ -89,20 +89,47 @@ function initToday() {
   var today = new Date();
   var isoToday = today.toISOString().split('T')[0];
 
+  // Find the current week (the one containing today)
+  var todayWeek = null;
+  var todayDay = null;
   for (var weekKey in WEEKS) {
     var weekData = WEEKS[weekKey];
     for (var dayLabel in weekData.days) {
       if (weekData.days[dayLabel].isoDate === isoToday) {
-        state.currentWeek = weekKey;
-        state.currentDay = dayLabel;
+        todayWeek = weekKey;
+        todayDay = dayLabel;
+      }
+    }
+  }
+
+  // Find the first incomplete day (up to and including today)
+  var weekKeys = getWeekKeys();
+  for (var w = 0; w < weekKeys.length; w++) {
+    var wk = weekKeys[w];
+    var days = getDayKeys(wk);
+    for (var d = 0; d < days.length; d++) {
+      var dy = days[d];
+      var dayDate = WEEKS[wk].days[dy].isoDate;
+      // Don't go past today
+      if (dayDate > isoToday) break;
+      // Check if this day is incomplete (any pillar not done)
+      if (dayCompletionCount(wk, dy) < PILLAR_COUNT) {
+        state.currentWeek = wk;
+        state.currentDay = dy;
         return;
       }
     }
   }
 
-  var firstWeek = Object.keys(WEEKS)[0];
-  state.currentWeek = firstWeek;
-  state.currentDay = Object.keys(WEEKS[firstWeek].days)[0];
+  // All days complete up to today — show today
+  if (todayWeek) {
+    state.currentWeek = todayWeek;
+    state.currentDay = todayDay;
+  } else {
+    var firstWeek = weekKeys[0];
+    state.currentWeek = firstWeek;
+    state.currentDay = getDayKeys(firstWeek)[0];
+  }
 }
 
 // ============================================================
